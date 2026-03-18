@@ -1,0 +1,314 @@
+import pygame
+import chess
+import math
+import sys
+from typing import Optional, List, Dict
+
+pygame.init()
+
+WIDTH, HEIGHT = 720, 800
+SQ = WIDTH // 8
+screen = pygame.display.set_mode((WIDTH, HEIGHT))
+pygame.display.set_caption("Ability Chess ULTRA")
+
+font = pygame.font.SysFont("arial", 28)
+
+# Colors
+WHITE = (240, 217, 181)
+BROWN = (181, 136, 99)
+GREEN = (80, 200, 120)
+RED = (220, 70, 70)
+YELLOW = (240, 240, 100)
+
+PIECES = {
+    "P": "♙", "N": "♘", "B": "♗", "R": "♖", "Q": "♕", "K": "♔",
+    "p": "♟", "n": "♞", "b": "♝", "r": "♜", "q": "♛", "k": "♚"
+}
+
+VALUES = {1: 100, 2: 320, 3: 330, 4: 500, 5: 900, 6: 20000}
+ABILITY_COOLDOWNS = {"pawn":3,"knight":3,"bishop":5,"rook":5,"queen":3,"king":8}
+
+class AbilityChess:
+    def __init__(self):
+        self.board = chess.Board()
+        self.turn = "white"
+        self.selected: Optional[int] = None
+        self.legal_moves: List[chess.Move] = []
+
+        self.elixir: Dict[str,int] = {"white":5,"black":5}
+        self.elixir_counter = 0
+        self.cooldowns: Dict[str,Dict[str,int]] = {
+            "white": {k:0 for k in ABILITY_COOLDOWNS},
+            "black": {k:0 for k in ABILITY_COOLDOWNS}
+        }
+
+        self.toppled_pawns: Dict[str,List[Dict]] = {"white":[],"black":[]}
+        self.extra_turns: Dict[str,int] = {"white":0,"black":0}
+        self.effects: List[Dict] = []
+
+        self.mode: Optional[str] = None
+        self.queen_target: Optional[int] = None
+        self.ai_depth = 2
+
+    # ---------------- DRAW ----------------
+    def draw_board(self):
+        for r in range(8):
+            for c in range(8):
+                color = WHITE if (r+c)%2==0 else BROWN
+                pygame.draw.rect(screen,color,(c*SQ,r*SQ,SQ,SQ))
+
+    def draw_highlights(self):
+        if self.selected is not None:
+            r = 7 - self.selected//8
+            c = self.selected%8
+            pygame.draw.rect(screen,GREEN,(c*SQ,r*SQ,SQ,SQ),4)
+        for m in self.legal_moves:
+            r = 7 - m.to_square//8
+            c = m.to_square%8
+            pygame.draw.circle(screen,YELLOW,(c*SQ+SQ//2,r*SQ+SQ//2),10)
+
+    def draw_pieces(self):
+        for sq in chess.SQUARES:
+            p = self.board.piece_at(sq)
+            if p:
+                r = 7 - sq//8
+                c = sq %8
+                txt = font.render(PIECES[p.symbol()],True,(0,0,0))
+                screen.blit(txt,(c*SQ+20,r*SQ+15))
+        # toppled pawns
+        for pawn in self.toppled_pawns[self.turn]:
+            pygame.draw.circle(screen,(100,100,100),self.sq_to_pos(pawn["sq"]),15)
+
+    def draw_ui(self):
+        pygame.draw.rect(screen,(30,30,30),(0,720,720,80))
+        txt = f"{self.turn.upper()} | Elixir: {self.elixir[self.turn]}"
+        screen.blit(font.render(txt,True,(255,255,255)),(10,730))
+        abilities = "1:Knight 2:Bishop 3:Rook 4:Queen 5:King 6:Pawn"
+        screen.blit(font.render(abilities,True,(200,200,200)),(10,760))
+
+    def draw_effects(self):
+        for e in self.effects:
+            if e["type"]=="laser":
+                pygame.draw.line(screen,RED,e["start"],e["end"],3)
+            elif e["type"]=="boom":
+                pygame.draw.circle(screen,RED,e["pos"],e["r"],2)
+                e["r"]+=2
+
+    # ---------------- HELPERS ----------------
+    @staticmethod
+    def sq_to_pos(sq:int):
+        r = 7 - sq//8
+        c = sq %8
+        return (c*SQ+SQ//2,r*SQ+SQ//2)
+
+    @staticmethod
+    def get_square(pos):
+        x,y = pos
+        if y>720: return None
+        return chess.square(x//SQ,7-(y//SQ))
+
+    def can_use_ability(self,name:str,cost:int)->bool:
+        return self.elixir[self.turn]>=cost and self.cooldowns[self.turn][name]==0
+
+    # ---------------- TURN ----------------
+    def next_turn(self):
+        if self.extra_turns[self.turn]>0:
+            self.extra_turns[self.turn]-=1
+        else:
+            self.turn = "black" if self.turn=="white" else "white"
+            self.elixir_counter+=1
+            if self.elixir_counter%2==0: self.elixir[self.turn]+=1
+            for k in self.cooldowns[self.turn]:
+                if self.cooldowns[self.turn][k]>0:
+                    self.cooldowns[self.turn][k]-=1
+            for pawn in self.toppled_pawns[self.turn]:
+                pawn["timer"]-=1
+            self.toppled_pawns[self.turn] = [p for p in self.toppled_pawns[self.turn] if p["timer"]>0]
+
+    # ---------------- AI ----------------
+    def evaluate(self)->int:
+        score=0
+        for sq in chess.SQUARES:
+            p = self.board.piece_at(sq)
+            if p:
+                val = VALUES[p.piece_type]
+                score += val if p.color else -val
+        return score
+
+    def minimax(self,depth:int,alpha:float,beta:float,maxing:bool):
+        if depth==0 or self.board.is_game_over():
+            return self.evaluate(),None
+        best_move=None
+        if maxing:
+            max_eval=-math.inf
+            for m in self.board.legal_moves:
+                self.board.push(m)
+                val,_=self.minimax(depth-1,alpha,beta,False)
+                self.board.pop()
+                if val>max_eval:
+                    max_eval,best_move=val,m
+                alpha=max(alpha,val)
+                if beta<=alpha: break
+            return max_eval,best_move
+        else:
+            min_eval=math.inf
+            for m in self.board.legal_moves:
+                self.board.push(m)
+                val,_=self.minimax(depth-1,alpha,beta,True)
+                self.board.pop()
+                if val<min_eval:
+                    min_eval,best_move=val,m
+                beta=min(beta,val)
+                if beta<=alpha: break
+            return min_eval,best_move
+
+    def ai_move(self):
+        _,move=self.minimax(self.ai_depth,-math.inf,math.inf,False)
+        if move: self.board.push(move)
+
+    # ---------------- ABILITIES ----------------
+    def pawn_respawn(self,target:int):
+        if not self.can_use_ability("pawn",2): return
+        toppled = self.toppled_pawns[self.turn]
+        if not toppled: return
+        if self.board.piece_at(target): return
+        p_info = toppled.pop(0)
+        self.board.set_piece_at(target,chess.Piece(chess.PAWN,self.turn=="white"))
+        self.elixir[self.turn]-=2
+        self.cooldowns[self.turn]["pawn"]=ABILITY_COOLDOWNS["pawn"]
+        self.next_turn()
+
+    def knight_double_hop(self,sq:int):
+        if not self.can_use_ability("knight",2): return
+        p = self.board.piece_at(sq)
+        if not p or p.piece_type!=chess.KNIGHT or p.color!=(self.turn=="white"): return
+        moves = [m for m in self.board.legal_moves if m.from_square==sq]
+        if len(moves)<1: return
+        first_move = moves[0]
+        self.board.push(first_move)
+        self.elixir[self.turn]-=2
+        self.cooldowns[self.turn]["knight"]=ABILITY_COOLDOWNS["knight"]
+        self.next_turn()
+
+    def bishop_laser(self,sq:int):
+        if not self.can_use_ability("bishop",3): return
+        start = self.sq_to_pos(sq)
+        killed = 0
+        cur = sq
+        for d in [9,7,-9,-7]:
+            cur = sq
+            while True:
+                cur+=d
+                if cur not in chess.SQUARES: break
+                p = self.board.piece_at(cur)
+                if p and p.piece_type!=chess.KING and p.color!=(self.turn=="white"):
+                    self.effects.append({"type":"laser","start":start,"end":self.sq_to_pos(cur)})
+                    self.board.remove_piece_at(cur)
+                    killed+=1
+                    if killed>=2: break
+        self.board.remove_piece_at(sq)
+        self.elixir[self.turn]-=3
+        self.cooldowns[self.turn]["bishop"]=ABILITY_COOLDOWNS["bishop"]
+        self.next_turn()
+
+    def rook_cannon(self,sq:int):
+        if not self.can_use_ability("rook",2): return
+        targets = [s for s in chess.SQUARES if self.board.piece_at(s) and self.board.piece_at(s).color!=(self.turn=="white")]
+        if not targets: return
+        target = targets[0]
+        p = self.board.piece_at(target)
+        cost = 2 if p.piece_type==chess.PAWN else 3 if p.piece_type in [chess.KNIGHT,chess.BISHOP] else 4
+        if self.elixir[self.turn]<cost: return
+        self.board.remove_piece_at(target)
+        self.effects.append({"type":"boom","pos":self.sq_to_pos(target),"r":5})
+        self.elixir[self.turn]-=cost
+        self.cooldowns[self.turn]["rook"]=ABILITY_COOLDOWNS["rook"]
+        self.next_turn()
+
+    def queen_jump(self,sq:int,target:int):
+        if not self.can_use_ability("queen",3): return
+        if self.board.piece_at(target): return
+        p = self.board.piece_at(sq)
+        if not p or p.piece_type!=chess.QUEEN or p.color!=(self.turn=="white"): return
+        self.board.remove_piece_at(sq)
+        self.board.set_piece_at(target,p)
+        self.elixir[self.turn]-=3
+        self.cooldowns[self.turn]["queen"]=ABILITY_COOLDOWNS["queen"]
+        self.next_turn()
+
+    def king_buff(self):
+        if not self.can_use_ability("king",4): return
+        self.extra_turns[self.turn]=2
+        self.elixir[self.turn]-=4
+        self.cooldowns[self.turn]["king"]=ABILITY_COOLDOWNS["king"]
+        self.next_turn()
+
+
+# ---------------- MAIN LOOP ----------------
+game = AbilityChess()
+running = True
+
+while running:
+    screen.fill((0,0,0))
+    game.draw_board()
+    game.draw_highlights()
+    game.draw_pieces()
+    game.draw_effects()
+    game.draw_ui()
+
+    for event in pygame.event.get():
+        if event.type==pygame.QUIT:
+            running=False
+
+        elif event.type==pygame.MOUSEBUTTONDOWN:
+            sq = game.get_square(pygame.mouse.get_pos())
+            if sq is None: continue
+
+            if game.mode=="pawn":
+                game.pawn_respawn(sq)
+                game.mode=None
+                continue
+
+            if game.queen_target is not None:
+                game.queen_jump(game.selected,sq)
+                game.selected=None
+                game.queen_target=None
+                continue
+
+            if game.selected is None:
+                p = game.board.piece_at(sq)
+                if p and p.color==(game.turn=="white"):
+                    game.selected=sq
+                    game.legal_moves=[m for m in game.board.legal_moves if m.from_square==sq]
+            else:
+                move = chess.Move(game.selected,sq)
+                if move in game.board.legal_moves:
+                    game.board.push(move)
+                    game.selected=None
+                    game.legal_moves=[]
+                    game.next_turn()
+                    if game.turn=="black":
+                        game.ai_move()
+                        game.next_turn()
+                else:
+                    game.selected=None
+                    game.legal_moves=[]
+
+        elif event.type==pygame.KEYDOWN:
+            if event.key==pygame.K_1 and game.selected:
+                game.knight_double_hop(game.selected)
+            elif event.key==pygame.K_2 and game.selected:
+                game.bishop_laser(game.selected)
+            elif event.key==pygame.K_3 and game.selected:
+                game.rook_cannon(game.selected)
+            elif event.key==pygame.K_4 and game.selected:
+                game.queen_target = True
+            elif event.key==pygame.K_5:
+                game.king_buff()
+            elif event.key==pygame.K_6:
+                game.mode="pawn"
+
+    pygame.display.flip()
+
+pygame.quit()
+sys.exit()
