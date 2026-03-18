@@ -67,17 +67,19 @@ class AbilityChess:
             c = m.to_square%8
             pygame.draw.circle(screen,YELLOW,(c*SQ+SQ//2,r*SQ+SQ//2),10)
 
-    def draw_pieces(self):
-        for sq in chess.SQUARES:
-            p = self.board.piece_at(sq)
-            if p:
-                r = 7 - sq//8
-                c = sq %8
-                txt = font.render(PIECES[p.symbol()],True,(0,0,0))
-                screen.blit(txt,(c*SQ+20,r*SQ+15))
-        # toppled pawns
-        for pawn in self.toppled_pawns[self.turn]:
-            pygame.draw.circle(screen,(100,100,100),self.sq_to_pos(pawn["sq"]),15)
+def draw_pieces(self):
+    for sq in chess.SQUARES:
+        p = self.board.piece_at(sq)
+        if p:
+            r = 7 - sq // 8
+            c = sq % 8
+            txt = font.render(PIECES[p.symbol()], True, (0, 0, 0))
+            # Center the piece in the square
+            rect = txt.get_rect(center=(c*SQ + SQ//2, r*SQ + SQ//2))
+            screen.blit(txt, rect)
+    # toppled pawns
+    for pawn in self.toppled_pawns[self.turn]:
+        pygame.draw.circle(screen, (100,100,100), self.sq_to_pos(pawn["sq"]), 15)
 
     def draw_ui(self):
         pygame.draw.rect(screen,(30,30,30),(0,720,720,80))
