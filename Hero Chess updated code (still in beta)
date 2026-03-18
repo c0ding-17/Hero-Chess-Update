@@ -50,37 +50,39 @@ class AbilityChess:
         self.queen_target: Optional[int] = None
         self.ai_depth = 2
 
-    # ---------------- DRAW ----------------
+
+
+     # ---------------- DRAW ----------------
     def draw_board(self):
         for r in range(8):
             for c in range(8):
                 color = WHITE if (r+c)%2==0 else BROWN
-                pygame.draw.rect(screen,color,(c*SQ,r*SQ,SQ,SQ))
+                pygame.draw.rect(screen, color, (c*SQ, r*SQ, SQ, SQ))
 
     def draw_highlights(self):
         if self.selected is not None:
-            r = 7 - self.selected//8
-            c = self.selected%8
-            pygame.draw.rect(screen,GREEN,(c*SQ,r*SQ,SQ,SQ),4)
+            r = 7 - self.selected // 8
+            c = self.selected % 8
+            pygame.draw.rect(screen, GREEN, (c*SQ, r*SQ, SQ, SQ), 4)
         for m in self.legal_moves:
-            r = 7 - m.to_square//8
-            c = m.to_square%8
-            pygame.draw.circle(screen,YELLOW,(c*SQ+SQ//2,r*SQ+SQ//2),10)
+            r = 7 - m.to_square // 8
+            c = m.to_square % 8
+            pygame.draw.circle(screen, YELLOW, (c*SQ + SQ//2, r*SQ + SQ//2), 10)
 
-def draw_pieces(self):
-    for sq in chess.SQUARES:
-        p = self.board.piece_at(sq)
-        if p:
-            r = 7 - sq // 8
-            c = sq % 8
-            txt = font.render(PIECES[p.symbol()], True, (0, 0, 0))
-            # Center the piece in the square
-            rect = txt.get_rect(center=(c*SQ + SQ//2, r*SQ + SQ//2))
-            screen.blit(txt, rect)
-    # toppled pawns
-    for pawn in self.toppled_pawns[self.turn]:
-        pygame.draw.circle(screen, (100,100,100), self.sq_to_pos(pawn["sq"]), 15)
+    # <<< Make sure this is indented properly under the class >>>
+    def draw_pieces(self):
+        for sq in chess.SQUARES:
+            p = self.board.piece_at(sq)
+            if p:
+                r = 7 - sq // 8
+                c = sq % 8
+                txt = font.render(PIECES[p.symbol()], True, (0, 0, 0))
+                rect = txt.get_rect(center=(c*SQ + SQ//2, r*SQ + SQ//2))
+                screen.blit(txt, rect)
 
+        # toppled pawns
+        for pawn in self.toppled_pawns[self.turn]:
+            pygame.draw.circle(screen, (100, 100, 100), self.sq_to_pos(pawn["sq"]), 15)
     def draw_ui(self):
         pygame.draw.rect(screen,(30,30,30),(0,720,720,80))
         txt = f"{self.turn.upper()} | Elixir: {self.elixir[self.turn]}"
